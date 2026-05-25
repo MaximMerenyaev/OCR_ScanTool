@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Processor</title>
+    <link rel="stylesheet" href="/static/style.css?v=11">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <span class="brand-name">OCR Processor</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#" class="nav-link active">Главная</a></li>
+                <li><a href="#" class="nav-link" onclick="showHistoryModal();return false;">История</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <div class="content-wrapper">
+
+            <div class="toolbar">
+                <div class="upload-section">
+                    <label for="imageInput" class="upload-btn">Загрузить изображения</label>
+                    <input type="file" id="imageInput" accept="image/*" multiple hidden>
+                    <label for="pdfInput" class="upload-btn upload-btn-pdf">Загрузить PDF</label>
+                    <input type="file" id="pdfInput" accept=".pdf" hidden>
+                    <span id="fileName" class="file-name">Файлы не выбраны</span>
+                </div>
+
+                <div class="ocr-settings">
+                    <div class="ocr-engine-selector">
+                        <label>OCR:</label>
+                        <select id="ocrEngine" onchange="onEngineChange()">
+                            <option value="tesseract">Tesseract</option>
+                            <option value="vlm">Qwen2-VL</option>
+                        </select>
+                    </div>
+                    <div class="language-selector">
+                        <label>Язык:</label>
+                        <select id="language">
+                            <option value="rus">Русский</option>
+                            <option value="eng">English</option>
+                            <option value="rus+eng">Русский + English</option>
+                        </select>
+                    </div>
+                    <div class="text-mode-selector" id="textModeSelector" style="display:none;">
+                        <label>Текст:</label>
+                        <select id="textMode">
+                            <option value="printed">Печатный</option>
+                            <option value="handwritten">Рукописный</option>
+                        </select>
+                    </div>
+                    <div class="preprocess-selector">
+                        <label>Предобработка:</label>
+                        <select id="preprocessing">
+                            <option value="none">Нет</option>
+                            <option value="basic">Шумоподавление</option>
+                            <option value="full">Полная (наклон+шум)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="action-buttons">
+                    <button id="processBtn" class="btn btn-primary" onclick="processAllImages()">Обработать все</button>
+                    <button id="processCurrentBtn" class="btn btn-secondary" onclick="processCurrentImage()">Обработать текущую</button>
+                    <button id="compareBtn" class="btn btn-compare" onclick="compareEngines()" title="Сравнить Tesseract и Qwen2-VL">⇄ Сравнить</button>
+                    <button id="layoutBtn" class="btn btn-layout" onclick="detectLayout()" title="Анализ структуры документа">⊞ Анализ блоков</button>
+                    <button id="cropModeBtn" class="btn btn-crop" onclick="toggleCropMode()" title="Выделить область для OCR">✂ Выделить область</button>
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="exportText()" title="Сохранить как TXT">TXT</button>
+                        <button class="btn btn-secondary" onclick="exportDocx()" title="Сохранить как DOCX">DOCX</button>
+                    </div>
+                    <button id="clearBtn" class="btn btn-danger" onclick="clearAll()">Очистить</button>
+                </div>
+            </div>
+
+            <div class="page-navigation" id="pageNavigation" style="display: none;">
+                <button class="nav-btn" onclick="previousPage()" id="prevBtn">Назад</button>
+                <span class="page-info">
+                    Страница <span id="currentPage">1</span> из <span id="totalPages">1</span>
+                </span>
+                <button class="nav-btn" onclick="nextPage()" id="nextBtn">Вперед</button>
+            </div>
+
+            <div class="workspace">
+
+                <div class="column col-image">
+                    <div class="column-header">
+                        <h3>Изображение <span id="imageFileName"></span></h3>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <button id="clearLayoutBtn" class="btn-small" onclick="clearLayout()" style="display:none;">✕ Сбросить блоки</button>
+                            <span id="pageStatus" class="status-badge">Не обработано</span>
+                        </div>
+                    </div>
+                    <div class="column-content image-viewer">
+                        <div class="image-container" id="imageContainer">
+                            <div class="image-placeholder" id="imagePlaceholder">
+                                <p>Загрузите изображения для распознавания</p>
+                                <span class="placeholder-hint">JPG, PNG, BMP, TIFF</span>
+                            </div>
+                            <img id="imagePreview" src="" alt="Preview" class="image-preview" style="display: none;">
+                            <canvas id="layoutCanvas" class="layout-canvas" style="display: none;"></canvas>
+                            <canvas id="cropCanvas" class="crop-canvas" style="display: none;"></canvas>
+                            <div id="cropHint" class="crop-hint" style="display: none;">
+                                Нарисуйте прямоугольник для выделения области
+                            </div>
+                        </div>
+                        <div class="zoom-controls" id="zoomControls" style="display: none;">
+                            <button class="zoom-btn" onclick="zoomOut()">-</button>
+                            <span id="zoomLevel">100%</span>
+                            <button class="zoom-btn" onclick="zoomIn()">+</button>
+                            <button class="zoom-btn" onclick="resetZoom()">Сброс</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="column col-text">
+                    <div class="column-header">
+                        <h3>Распознанный текст</h3>
+                        <div class="header-actions">
+                            <span id="fullTextStats" class="status-badge" style="margin-right: 4px;">0 символов</span>
+                            <button class="btn-small" onclick="copyFullText()">Копировать</button>
+                            <button class="btn-small btn-primary" onclick="saveToHistory()" title="Сохранить в историю">Сохранить</button>
+                        </div>
+                    </div>
+                    <div class="column-content">
+                        <div id="extractedText"
+                             class="text-editor"
+                             contenteditable="true"
+                             spellcheck="false"
+                             data-placeholder="Здесь появится распознанный текст..."></div>
+                    </div>
+                    <!-- Панель результата кропа — скрыта по умолчанию -->
+                    <div id="cropResultPanel" class="crop-result-panel" style="display:none;">
+                        <div class="crp-resize-handle" id="crpResizeHandle"></div>
+                        <div class="crp-panel-header">
+                            <span class="crp-panel-title">✦ Распознанная область</span>
+                            <button class="crp-panel-close" onclick="closeCropPanel()" title="Закрыть">✕</button>
+                        </div>
+                        <textarea id="cropResultText" class="crp-panel-textarea" spellcheck="false" placeholder="Результат появится здесь..."></textarea>
+                        <div class="crp-panel-actions">
+                            <button class="crp-btn crp-btn-insert" onclick="cropApplyInsert()">↑ Вставить в курсор</button>
+                            <button class="crp-btn crp-btn-replace" onclick="cropApplyReplace()">↺ Заменить весь текст</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="column col-sidebar">
+                    <div class="column-header sidebar-tabs">
+                        <button class="tab-btn active" onclick="switchTab('summary')" id="tabSummary">Содержание</button>
+                        <button class="tab-btn" onclick="switchTab('analysis')" id="tabAnalysis">Анализ текста</button>
+                    </div>
+
+                    <!-- Вкладка: Суммаризация -->
+                    <div id="paneSummary" class="tab-pane active">
+                        <div class="pane-toolbar">
+                            <button class="btn-small btn-primary" onclick="summarizeText()" id="summarizeBtn">Создать</button>
+                        </div>
+                        <div class="column-content">
+                            <textarea id="summaryText" class="sidebar-textarea" placeholder="Нажмите 'Создать' для генерации..." readonly></textarea>
+                            <div id="summaryStats" class="sidebar-stats" style="display: none;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Вкладка: Анализ текста -->
+                    <div id="paneAnalysis" class="tab-pane" style="display:none;">
+                        <div class="pane-toolbar">
+                            <button class="btn-small btn-primary" onclick="analyzeText()" id="analyzeBtn">Анализировать</button>
+                        </div>
+                        <div class="column-content analysis-content" id="analysisContent">
+                            <div class="analysis-placeholder">
+                                <p>Нажмите «Анализировать»<br>для анализа распознанного текста</p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <div id="notification" class="notification"></div>
+
+    <div id="progressModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Обработка изображений...</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <p id="progressText">Обработка страницы 1 из 1</p>
+        </div>
+    </div>
+
+    <!-- ── Compare modal ──────────────────────────────────── -->
+    <div id="compareModal" class="modal" style="display:none;" onclick="if(event.target===this)closeCompareModal()">
+        <div class="modal-lg">
+            <div class="modal-header">
+                <h3>⇄ Сравнение движков: Tesseract vs Qwen2-VL</h3>
+                <button class="modal-close" onclick="closeCompareModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="compareProgress" class="compare-progress">
+                    <div class="crop-spinner" style="border-top-color:#7C3AED;width:36px;height:36px;border-width:3px;border-color:rgba(124,58,237,0.2);border-top-color:#7C3AED"></div>
+                    <span id="compareProgressMsg">Запуск сравнения...</span>
+                </div>
+                <div id="compareColumns" class="compare-columns" style="display:none;">
+                    <div class="compare-col">
+                        <div class="compare-col-title">
+                            <span>Tesseract</span>
+                            <span class="compare-time" id="compareTessTime"></span>
+                        </div>
+                        <textarea id="compareTessText" class="compare-textarea" readonly placeholder="Результат Tesseract..."></textarea>
+                    </div>
+                    <div class="compare-col">
+                        <div class="compare-col-title">
+                            <span>Qwen2-VL</span>
+                            <span class="compare-time" id="compareVlmTime"></span>
+                        </div>
+                        <textarea id="compareVlmText" class="compare-textarea" readonly placeholder="Результат Qwen2-VL..."></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="applyCompareResult('tesseract')">← Применить Tesseract</button>
+                <button class="btn btn-secondary" onclick="applyCompareResult('vlm')">Применить Qwen2-VL →</button>
+                <button class="btn btn-danger" onclick="closeCompareModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── History modal ──────────────────────────────────── -->
+    <div id="historyModal" class="modal" style="display:none;" onclick="if(event.target===this)closeHistoryModal()">
+        <div class="modal-lg" style="max-width:700px;">
+            <div class="modal-header">
+                <h3>📂 История обработки</h3>
+                <button class="modal-close" onclick="closeHistoryModal()">✕</button>
+            </div>
+            <div class="modal-body" style="min-height:200px;">
+                <div id="historyList" class="history-list">
+                    <div class="history-empty">Загрузка...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeHistoryModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Table modal ────────────────────────────────────── -->
+    <div id="tableModal" class="modal" style="display:none;" onclick="if(event.target===this)closeTableModal()">
+        <div class="modal-lg" style="max-width:800px;">
+            <div class="modal-header">
+                <h3>⊞ Извлечённая таблица</h3>
+                <button class="modal-close" onclick="closeTableModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="table-wrapper">
+                    <table class="table-result">
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+                <div class="table-csv-label">CSV</div>
+                <textarea id="tableCsv" class="table-csv" readonly></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="copyTableCsv()">Копировать CSV</button>
+                <button class="btn btn-danger" onclick="closeTableModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js?v=11"></script>
+</body>
+</html>

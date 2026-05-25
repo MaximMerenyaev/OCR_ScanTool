@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+jinja2
+python-multipart
+pytesseract
+pillow
+transformers>=4.35.0
+torch
+torchvision
+sentencepiece
+accelerate
+qwen-vl-utils
+python-docx
+pdf2image
